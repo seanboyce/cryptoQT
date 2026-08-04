@@ -8,9 +8,9 @@
 GCM<AES256> aes_gcm;
 
 // Global Config
-String ssid = "DINHKHANH"; // optional but recommended -- pre-set the network the device is allowed to connect to
-String password = "03102003"; // optional but recommended -- pre-set the network the device is allowed to connect to
-String server = "voltage.vn";
+String ssid = ""; // required -- pre-set the network the device is allowed to connect to
+String password = ""; // required -- pre-set the network the device is allowed to connect to
+String server = "voltage.vn"; // The temp password for testing is below.
 int port = 4242;
 // End Global Config
 
@@ -197,6 +197,7 @@ void setup() {
 void loop() {
   while (Serial.available() == 0){ // Device is plugged in, and we need to maintain connection. So no need for sleep modes.
   mymqtt.loop(); // check for any messages on my channel (my identifier)
+  delay(350); // Calling the mqtt loop too often is a waste of power, it has to use WiFi
   }
   int command = Serial.read(); // We've received a command, what is it?
         // Command list. Some artistic license taken with the standard control characters.
