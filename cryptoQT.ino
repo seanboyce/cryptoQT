@@ -25,7 +25,7 @@ String remoteIdentifierTemp; //Store remote indentifier before acceptance
 String remotePubkeyHex;
 String currentPayload = ""; // The current message being typed
 bool connected = false;
-String messageList[2] = {}; // We can store inbound messages here as a buffer in case they aren ot read fast enough. Store up to 3 messages this way. We have plenty of RAM so String is fine.
+String messageList[3] = {}; // We can store inbound messages here as a buffer in case they aren ot read fast enough. Store up to 3 messages this way. We have plenty of RAM so String is fine.
 int stringCount = 0;
 // End Global Vars
 
@@ -156,7 +156,7 @@ void messageReceived(String &topic, String &payload) {
   uint8_t thisIV[16];
   hexStringToBytes(hexIV.c_str(), thisIV);
   char plaintext[1024];
-  aes_gcm.setKey(local.getSharedSecret(), sizeof(local.getSharedSecret()));
+  aes_gcm.setKey(local.getSharedSecret(), 32);
   aes_gcm.setIV(thisIV, sizeof(thisIV)); 
   aes_gcm.addAuthData(remoteIdentifier.c_str(), remoteIdentifier.length());
   aes_gcm.decrypt((uint8_t*)plaintext, encryptedBytes, sizeof(encryptedBytes));
@@ -239,29 +239,13 @@ void loop() {
         break;
       }
       // receive text
-        char plaintextTemp[512];
+        char plaintext[1024];
         Serial.print(17);
- //       while (Serial.available() == 0){
- //           delay(200); // just do whatever, we're waiting on input and it should block MQTT in the meantime'
-//          }
-  //         while (Serial.available() > 0) {
-  //   char incomingChar = Serial.read();
-    
-  //   // Check for the terminator character (e.g., newline '\n')
-  //   if (incomingChar == '\x03') {
-  //     break;
-  //   } else {
-  //     // Dynamically grows as new characters are appended
-  //     plaintexttemp += incomingChar; 
-  //   }
-  // }
-  // const char* plaintext = plaintexttemp; // explicitly convert to const char*
-  // size_t bytesRead = sizeof(plaintext);
-      //size_t bytesRead = Serial.readBytesUntil('\x03', plaintextTemp, 512); // This is also blocking on purpose, nothing should interrupt text sending. We support max 1024 characters per message.
-      //plaintextTemp[bytesRead] = '\0';
-      //const char plaintext[] = "plaintextTemphhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
-      const char plaintext[] = "plaintextplaintext";
-      size_t bytesRead = sizeof(plaintext); // used to always return 1, so paddedbuffer would always return 16. strlen() gives the string length.
+        while (Serial.available() == 0){
+            delay(200); // just do whatever, we're waiting on input and it should block MQTT in the meantime'
+          }
+      size_t bytesRead = Serial.readBytesUntil('\x03', plaintext, 1024); // This is also blocking on purpose, nothing should interrupt text sending. We support max 1024 characters per message.
+      plaintext[bytesRead] = '\0';
       uint8_t tag[16]; // tag is 16 bytes
       uint8_t thisIV[16];
       esp_fill_random(thisIV, 16);
@@ -336,13 +320,13 @@ void loop() {
           int decision = Serial.read();
           if (decision == 6){ // Send ACK to accept, anything else cancels.
             if (remoteIdentifier.length() == 0){ // In this case, we have received a public key, so we compute a shared secret ciphertext, send the public key and ciphertext, and store our local copy of the shared secret.
+              remote.setPublicKeyHex(remotePubkeyHex.c_str());
               if (!local.encapsulate(remote.getPublicKey())) {
               Serial.print(24); // CANCEL something went wrong with encapsulation, invalid public key, clear it.
               remoteIdentifierTemp = String(); // Clear, invalid
               remotePubkeyHex = String(); // Clear, invalid
               return;
               }
-          remote.setPublicKeyHex(remotePubkeyHex.c_str()); // As long as encapsulation succeeds, we need to set the remote public key the user has accepted.
           connected = true; //Also set global connected flag as we have computed the local shared secret and are ready to send messages.
           mqtt_reconnect();
               //Send pubkey first, then wait a second, ciphertext.
