@@ -174,6 +174,9 @@ void messageReceived(String &topic, String &payload) {
    }
 
 void setup() {
+  // TODO set CPU frequency to 80Mhz (we are I/O bound not processing bound) and try enabling WiFi sleep mode.
+  setCpuFrequencyMhz(80);
+  WiFi.setSleep(true); 
   delay(200); // without this delay, there's a chance the serial monitor in Arduino causes a double-reset that's a pain during development. But only on esp32S3!
   int conn_count = 0;
   bool failState = false;
@@ -261,7 +264,6 @@ void loop() {
       Serial.print(paddedLen);
       delay(100);
       aes_gcm.encrypt(ciphertext, paddedBuffer, paddedLen); //this fails when length is above 16 characters!!!
-      Serial.print("OK!!!");
       aes_gcm.computeTag(tag, sizeof(tag));
       // Convert ciphertext to hex string
       size_t ciphertextSize = sizeof(ciphertext);
