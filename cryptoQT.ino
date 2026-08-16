@@ -158,7 +158,7 @@ void messageReceived(String &topic, String &payload) {
   char plaintext[1024];
   aes_gcm.setKey(local.getSharedSecret(), sizeof(local.getSharedSecret()));
   aes_gcm.setIV(thisIV, sizeof(thisIV)); 
-  aes_gcm.addAuthData(remoteIdentifier.c_str(), sizeof(remoteIdentifier.c_str()));
+  aes_gcm.addAuthData(remoteIdentifier.c_str(), remoteIdentifier.length());
   aes_gcm.decrypt((uint8_t*)plaintext, encryptedBytes, sizeof(encryptedBytes));
   if (!aes_gcm.checkTag(tagBytes, sizeof(tagBytes))) {
     Serial.print(24); // invalid message received
@@ -267,7 +267,7 @@ void loop() {
       esp_fill_random(thisIV, 16);
       size_t paddedLen = bytesRead + (16 - (bytesRead % 16)); //This works now
       uint8_t paddedBuffer[paddedLen];
-      applyPKCS7Padding((uint8_t*)plaintext, paddedLen, paddedBuffer);
+      applyPKCS7Padding((uint8_t*)plaintext, bytesRead, paddedBuffer);
       aes_gcm.setKey(local.getSharedSecret(), 32);
       aes_gcm.setIV(thisIV, 16); 
       aes_gcm.addAuthData(localIdentifier.c_str(), localIdentifier.length()); // Convert localIdentifier to c_String so we can use it here
