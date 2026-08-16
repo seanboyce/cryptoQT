@@ -8,9 +8,9 @@
 GCM<AES256> aes_gcm;
 
 // Global Config
-String ssid = ""; // required -- pre-set the network the device is allowed to connect to
-String password = ""; // required -- pre-set the network the device is allowed to connect to
-String server = "voltage.vn"; // The temp password for testing is below.
+String ssid = ""; // optional but recommended -- pre-set the network the device is allowed to connect to
+String password = ""; // optional but recommended -- pre-set the network the device is allowed to connect to
+String server = "voltage.vn";
 int port = 4242;
 // End Global Config
 
@@ -25,9 +25,10 @@ String remoteIdentifierTemp; //Store remote indentifier before acceptance
 String remotePubkeyHex;
 String currentPayload = ""; // The current message being typed
 bool connected = false;
-const char* messageList[3] = {}; // We can store inbound messages here as a buffer in case they aren ot read fast enough. Store up to 3 messages this way.
+String messageList[2] = {}; // We can store inbound messages here as a buffer in case they aren ot read fast enough. Store up to 3 messages this way. We have plenty of RAM so String is fine.
 int stringCount = 0;
 // End Global Vars
+
 
 void addString(char* newStr) { // add a message to the array of messages unless we've hit the max of 3 
   if (stringCount < 3) {
@@ -139,7 +140,7 @@ void messageReceived(String &topic, String &payload) {
    connected = true;
    const uint8_t* remoteCipherBytes = outputBytes; 
    if (!local.decapsulate(remoteCipherBytes)) {
-    Serial.println("Local Decapsulation Failed!");
+    Serial.print(24);
     connected = false;
     return;
   }
@@ -197,7 +198,7 @@ void setup() {
 void loop() {
   while (Serial.available() == 0){ // Device is plugged in, and we need to maintain connection. So no need for sleep modes.
   mymqtt.loop(); // check for any messages on my channel (my identifier)
-  delay(350); // Calling the mqtt loop too often is a waste of power, it has to use WiFi
+  delay(200); // Calling the mqtt loop too often is a waste of power
   }
   int command = Serial.read(); // We've received a command, what is it?
         // Command list. Some artistic license taken with the standard control characters.
@@ -233,24 +234,50 @@ void loop() {
     }
     case 2:
       {
+         if (!connected){
+        Serial.print(24); // We're already connected to a remote target, we should not send more chat requests out. Use RESET instead.
+        break;
+      }
       // receive text
+        char plaintextTemp[512];
+        Serial.print(17);
+ //       while (Serial.available() == 0){
+ //           delay(200); // just do whatever, we're waiting on input and it should block MQTT in the meantime'
+//          }
+  //         while (Serial.available() > 0) {
+  //   char incomingChar = Serial.read();
+    
+  //   // Check for the terminator character (e.g., newline '\n')
+  //   if (incomingChar == '\x03') {
+  //     break;
+  //   } else {
+  //     // Dynamically grows as new characters are appended
+  //     plaintexttemp += incomingChar; 
+  //   }
+  // }
+  // const char* plaintext = plaintexttemp; // explicitly convert to const char*
+  // size_t bytesRead = sizeof(plaintext);
+      //size_t bytesRead = Serial.readBytesUntil('\x03', plaintextTemp, 512); // This is also blocking on purpose, nothing should interrupt text sending. We support max 1024 characters per message.
+      //plaintextTemp[bytesRead] = '\0';
+      //const char plaintext[] = "plaintextTemphhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
+      const char plaintext[] = "plaintextplaintext";
+      size_t bytesRead = sizeof(plaintext); // used to always return 1, so paddedbuffer would always return 16. strlen() gives the string length.
+      uint8_t tag[16]; // tag is 16 bytes
       uint8_t thisIV[16];
       esp_fill_random(thisIV, 16);
-        Serial.print(17);
-        while (Serial.available() == 0){
-            delay(200); // just do whatever, we're waiting on input and it should block MQTT in the meantime'
-          }
-      char plaintext[1024];
-      uint8_t tag[16]; // tag is 16 bytes
-      size_t bytesRead = Serial.readBytesUntil('\x03', plaintext, 1024); // This is also blocking on purpose, nothing should interrupt text sending. We support max 1024 characters per message.
-      int paddedLen = bytesRead + (16 - (bytesRead % 16));
+      size_t paddedLen = bytesRead + (16 - (bytesRead % 16)); //This works now
       uint8_t paddedBuffer[paddedLen];
       applyPKCS7Padding((uint8_t*)plaintext, paddedLen, paddedBuffer);
-      aes_gcm.setKey(local.getSharedSecret(), sizeof(local.getSharedSecret()));
+      aes_gcm.setKey(local.getSharedSecret(), 32);
       aes_gcm.setIV(thisIV, 16); 
-      aes_gcm.addAuthData(localIdentifier.c_str(), sizeof(localIdentifier.c_str())); // Convert localIdentifier to c_String so we can use it here
-      byte ciphertext[paddedLen]; // multiple of 16
-      aes_gcm.encrypt(ciphertext, (const uint8_t*)paddedBuffer, paddedLen);
+      aes_gcm.addAuthData(localIdentifier.c_str(), localIdentifier.length()); // Convert localIdentifier to c_String so we can use it here
+      byte ciphertext[paddedLen]; // something fishy here, gcm.encrypt expects a pointer to output, but we pass a literal, thatm ight make it fail for anythingm ore than a few bytes.
+      Serial.print(sizeof(ciphertext));
+      Serial.print(sizeof(paddedBuffer));
+      Serial.print(paddedLen);
+      delay(100);
+      aes_gcm.encrypt(ciphertext, paddedBuffer, paddedLen); //this fails when length is above 16 characters!!!
+      Serial.print("OK!!!");
       aes_gcm.computeTag(tag, sizeof(tag));
       // Convert ciphertext to hex string
       size_t ciphertextSize = sizeof(ciphertext);
@@ -286,7 +313,7 @@ void loop() {
           break; // No messages to return
         } else {
           Serial.print(2); // Indicate start of text
-          Serial.print(messageList[stringCount-1]); // Return message
+          Serial.print(String(messageList[stringCount-1])); // Return message
           Serial.print(3); // Indicate end of text
           messageList[stringCount-1] = ""; // Delete message
           stringCount--;
@@ -345,21 +372,21 @@ void loop() {
       // calculate shared secret from the pubkey
       break;
       }
-    case 20:
+    case 7:
     {
       Serial.print(2);
       Serial.print(localIdentifier);
       Serial.print(3);
       break;
     }
-    case 18:
+    case 8:
     {
       Serial.print(2);
       Serial.print(remoteIdentifier);
       Serial.print(3);
       break;
     }
-    case 26:
+    case 9:
       {
       // TODO implement some way for host machine to set config
       break;
