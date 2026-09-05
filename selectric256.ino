@@ -152,8 +152,8 @@ void messageReceived(String &topic, String &payload) {
         Serial.println("Public key accepted");
         }
 
-} else if (payload.substring(3,19)==remoteIdentifier && payload.substring(0,3)=="ct_" && !connected){
-   String remoteCipherText = payload.substring(19);
+} else if (payload.substring(0,3)=="ct_" && !connected){
+   String remoteCipherText = payload.substring(3);
    size_t byteCount = strlen(remoteCipherText.c_str()) / 2;
    uint8_t outputBytes[byteCount];
    hexStringToBytes(remoteCipherText.c_str(), outputBytes);
@@ -452,7 +452,7 @@ void loop() {
               mymqtt.publish("entropy/"+remoteIdentifier, localIdentifier + local.getPublicKeyHex()); // If we have not yet set the remote identifier, it means that we did not send a pubkey yet. So we must reply to the request with ours.
               delay(1200);
               //It also means we need to send the ciphertext over
-              mymqtt.publish("entropy/"+remoteIdentifier, "ct_" + localIdentifier + local.getCiphertextHex());
+              mymqtt.publish("entropy/"+remoteIdentifier, "ct_" + local.getCiphertextHex());
               //Since we have both public keys and have computed the shared secret, se can store it.
             } else { // In this case, we actually don't have to do anything extra. It's someone replying to our request with a public key. The ciphertext will come through in a moment. 
               // We should never actually get here in normal operation, the public key we're wating for should be auto-detected and dropped on non-match.
