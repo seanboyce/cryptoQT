@@ -152,18 +152,38 @@ void messageReceived(String &topic, String &payload) {
         Serial.println("Public key accepted");
         }
 
-} else if (payload.substring(0,3)=="ct_" && !connected){
-   String remoteCipherText = payload.substring(3);
-   size_t byteCount = strlen(remoteCipherText.c_str()) / 2;
-   uint8_t outputBytes[byteCount];
-   hexStringToBytes(remoteCipherText.c_str(), outputBytes);
-   connected = true;
-   const uint8_t* remoteCipherBytes = outputBytes; 
-   if (!local.decapsulate(remoteCipherBytes)) {
-    Serial.print(24);
-    connected = false;
-    return;
-  }
+} else if (payload.length() == 3200){
+  // Chat request responses are always (32+800+768)*2=3200 characters long. The first 64 chars are a hmac, then the public key, then the ciphertext. Sending it in one message removes a window for shenanigans.
+   String prefix1 = payload.substring(0,64);
+   String message = payload.substring(64);
+   char hashData[3200];
+     message.toCharArray(hashData, 3200);
+     strcat(hashData,remotePermanentID);
+     strcat(hashData,remoteIdentifier.c_str());
+     const char *input = hashData;
+     uint8_t hash[32];
+     MySHA256.reset();
+     MySHA256.update(input, strlen(input));
+     MySHA256.finalize(hash, sizeof(hash));
+     size_t hashSize = sizeof(hash);
+     char ID_cstring[hashSize * 2 + 1]; // Two characters per byte, plus null-terminator
+     for (size_t i = 0; i < hashSize; i++) {
+        snprintf(&ID_cstring[i * 2], 3, "%02X", hash[i]);  // Uppercase hex
+        }
+        if (strcmp(ID_cstring, prefix1.c_str()) == 0){
+        remote.setPublicKeyHex(payload.substring(64,1664).c_str()); // only if OK do we set the remote public key
+        Serial.println("Public key accepted");
+        String remoteCipherText = payload.substring(1664);
+        size_t byteCount = strlen(remoteCipherText.c_str()) / 2;
+        uint8_t outputBytes[byteCount];
+        hexStringToBytes(remoteCipherText.c_str(), outputBytes);
+        if (!local.decapsulate(remoteCipherBytes)) {
+          Serial.print(24);
+          connected = false;
+          return;
+        }
+        }
+        }
 } else if (connected && payload.substring(0,3)=="cm_"){ //prefixing the messages is just a convenience. The GCM tag handles authentication here.
   String hexIV = payload.substring(3,35); // characters 19-51 are the hex representation of the initialization vector
   String hexTag = payload.substring(35,67); // characters 51-83 are the hex representation of the gcm tag
