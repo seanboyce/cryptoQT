@@ -7,17 +7,17 @@
 #include <SHA256.h>
 
 GCM<AES256> aes_gcm;
-SHA256 sha256;
+SHA256 MySHA256; //calling it SHA256 or hmac_SHA256 were both taken.
 
 // Global Config. This needs to be loaded in on boot. Can be hardcoded. A config file from the UI app is also reasonable.
 char localPermanentID[] = "9700J1OFr7E37Ku9BshKS4QMVEceaMD4"; //tr -dc A-Za-z0-9 </dev/urandom | head -c 32; echo
 char remotePermanentID[] = "JAz2oy88yALzVZZatNpB3Bm42FltgFw8";
-String ssid;
-String password;
-String server;
+char* ssid;
+char* password;
+char* server;
 int port;
-String serverPass;
-String channelPrefix;
+char* serverPass;
+char* channelPrefix;
 
 
 // End Global Config
@@ -99,7 +99,7 @@ while (!mymqtt.connect(localIdentifier.c_str(), "entropy", "azathoth")) {
 }
 
 void connect() {
-  WiFi.begin(ssid.c_str(), password.c_str());
+  WiFi.begin(ssid, password);
   int conn_count = 0;
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -137,9 +137,9 @@ void messageReceived(String &topic, String &payload) {
      strcat(hashData,remotePermanentID);
      const char *input = hashData;
      uint8_t hash[32];
-     sha256.reset();
-     sha256.update(input, strlen(input));
-     sha256.finalize(hash, sizeof(hash));
+     MySHA256.reset();
+     MySHA256.update(input, strlen(input));
+     MySHA256.finalize(hash, sizeof(hash));
      size_t hashSize = sizeof(hash);
      char ID_cstring[hashSize * 2 + 1]; // Two characters per byte, plus null-terminator
      for (size_t i = 0; i < hashSize; i++) {
@@ -220,21 +220,60 @@ void setup() {
 // 4. can chat now. 
 
 // As part of this, we'll remove case 6, and also we should probably automate case 1. If local channel ID > remote channelID, init comms.
-
+char configBuffer[512];
         Serial.print(17);
         while (Serial.available() == 0){
-            delay(200); // just do whatever, we're waiting on input and it should block MQTT in the meantime'
+            delay(200); // just do whatever, we're waiting on config input
           }
-      size_t bytesRead = Serial.readBytesUntil('\x03', timeStamp, 32); // This is also blocking on purpose, nothing should interrupt text sending. We support max 1024 characters per message.
-      timeStamp[bytesRead] = '\0';
+      size_t bytesRead = Serial.readBytesUntil('\x04', configBuffer, 512); // max 1024 characters of config. Items are separated by \x03 and terminated by \x04 
+      configBuffer[bytesRead] = '\0';
+      char* token = strtok(configBuffer, "\x03");
+      if (token != NULL) {
+        ssid = token; 
+      } else {
+        Serial.print(24);
+      }
+      token = strtok(NULL, "\x03");
+      if (token != NULL) {
+        password = token; 
+      } else {
+        Serial.print(24);
+      }
+      token = strtok(NULL, "\x03");
+      if (token != NULL) {
+        server = token; 
+      } else {
+        Serial.print(24);
+      }
+      token = strtok(NULL, "\x03");
+      if (token != NULL) {
+        port = atoi(token); 
+      } else {
+        Serial.print(24);
+      }
+      token = strtok(NULL, "\x03");
+      if (token != NULL) {
+        serverPass = token; 
+      } else {
+        Serial.print(24);
+      }
+      token = strtok(NULL, "\x03");
+      if (token != NULL) {
+        channelPrefix = token; 
+      } else {
+        Serial.print(24);
+      }
 
-  char hashData[1632] = {localPermanentID}; //32 bytes for ID, 7 for timestamp, one for null terminator
+
+  char hashData[1632]; //32 bytes for ID, 7 for timestamp, one for null terminator
+  memset(hashData, 0, sizeof(hashData));
+  strcpy(hashData, localPermanentID);
   strcat(hashData, timeStamp);
   const char *input = hashData;
   uint8_t hash[32];
-  sha256.reset();
-  sha256.update(input, strlen(input));
-  sha256.finalize(hash, sizeof(hash));
+  MySHA256.reset();
+  MySHA256.update(input, strlen(input));
+  MySHA256.finalize(hash, sizeof(hash));
   size_t hashSize = sizeof(hash);
   char ID_cstring[hashSize * 2 + 1]; // Two characters per byte, plus null-terminator
   for (size_t i = 0; i < hashSize; i++) {
@@ -243,29 +282,27 @@ void setup() {
   localIdentifier = String(ID_cstring);
 
 // OK, now compute the remote channel
-
-  hashData[1632] = {remotePermanentID};
+  memset(hashData, 0, sizeof(hashData));
+  strcpy(hashData, remotePermanentID);
   strcat(hashData, timeStamp);
-  *input = hashData;
-  sha256.reset();
-  sha256.update(input, strlen(input));
-  sha256.finalize(hash, sizeof(hash));
+  const char *input2 = hashData;
+  MySHA256.reset();
+  MySHA256.update(input2, strlen(input2));
+  MySHA256.finalize(hash, sizeof(hash));
   hashSize = sizeof(hash);
-  ID_cstring[hashSize * 2 + 1]; // Two characters per byte, plus null-terminator
   for (size_t i = 0; i < hashSize; i++) {
       snprintf(&ID_cstring[i * 2], 3, "%02X", hash[i]);  // Uppercase hex
       }
   remoteIdentifier = String(ID_cstring);
   
   //Finally, calculate the hash of my public key plus my permananent ID. This will be used to identify myself when exchanging public keys.
-  hashData[1632] = local.getPublicKeyHex();
-  strcat(hashData,localPermanentID);
-  *input = hashData;
-  sha256.reset();
-  sha256.update(input, strlen(input));
-  sha256.finalize(hash, sizeof(hash));
+  memset(hashData, 0, sizeof(hashData));
+  strcpy(hashData, local.getPublicKeyHex().c_str());
+  strcat(hashData, localPermanentID);
+  MySHA256.reset();
+  MySHA256.update(input, strlen(input));
+  MySHA256.finalize(hash, sizeof(hash));
   hashSize = sizeof(hash);
-  ID_cstring[hashSize * 2 + 1]; // Two characters per byte, plus null-terminator
   for (size_t i = 0; i < hashSize; i++) {
       snprintf(&ID_cstring[i * 2], 3, "%02X", hash[i]);  // Uppercase hex
       }
@@ -355,7 +392,7 @@ void loop() {
         snprintf(&hexIV[i * 2], 3, "%02X", thisIV[i]);  // Uppercase hex
       }
       mqtt_reconnect();
-      mymqtt.publish("entropy/"+remoteIdentifier, "cm_" + hexIV + hexTag + hexCiphertext);
+      mymqtt.publish("entropy/"+remoteIdentifier, "cm_" + String(hexIV) + hexTag + hexCiphertext);
       // delay(100);  there was an occasional restart that this seemed to help prevent, it no longer seems to occur, so removing it.
       break;
       }
@@ -396,17 +433,17 @@ void loop() {
               remote.setPublicKeyHex(remotePubkeyHex.c_str());
               if (!local.encapsulate(remote.getPublicKey())) {
               Serial.print(24); // CANCEL something went wrong with encapsulation, invalid public key, clear it.
-              remoteIdentifierTemp = String(); // Clear, invalid
+              //remoteIdentifierTemp = String(); // Clear, invalid
               remotePubkeyHex = String(); // Clear, invalid
               return;
               }
           connected = true; //Also set global connected flag as we have computed the local shared secret and are ready to send messages.
           mqtt_reconnect();
               //Send pubkey first, then wait a second, ciphertext.
-              mymqtt.publish("entropy/"+remoteIdentifierTemp, localIdentifier + local.getPublicKeyHex()); // If we have not yet set the remote identifier, it means that we did not send a pubkey yet. So we must reply to the request with ours.
+              mymqtt.publish("entropy/"+remoteIdentifier, localIdentifier + local.getPublicKeyHex()); // If we have not yet set the remote identifier, it means that we did not send a pubkey yet. So we must reply to the request with ours.
               delay(1200);
               //It also means we need to send the ciphertext over
-              mymqtt.publish("entropy/"+remoteIdentifierTemp, "ct_" + localIdentifier + local.getCiphertextHex());
+              mymqtt.publish("entropy/"+remoteIdentifier, "ct_" + localIdentifier + local.getCiphertextHex());
               //Since we have both public keys and have computed the shared secret, se can store it.
             } else { // In this case, we actually don't have to do anything extra. It's someone replying to our request with a public key. The ciphertext will come through in a moment. 
               // We should never actually get here in normal operation, the public key we're wating for should be auto-detected and dropped on non-match.
@@ -414,13 +451,9 @@ void loop() {
 
             }
 
-
-            remoteIdentifier = remoteIdentifierTemp;  // Has been confirmed by user
-            remoteIdentifierTemp = String(); // Clear it out to recover memory.
             
             
   } else {
-    remoteIdentifierTemp = String(); // clear these out, we've rejected the pubkey based on the identifier
     remotePubkeyHex = String();  // clear these out, we've rejected the pubkey based on the identifier
     }
       
