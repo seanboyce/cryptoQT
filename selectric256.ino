@@ -24,7 +24,6 @@ char* channelPrefix;
 // End Global Config
 
 // Global Vars
-String myHMAC;
 char timeStamp[32]; //First 7 digits of the current Linux timestamp. Either auto-entered by interface or user entered.
 WiFiClient client;
 MQTTClient mymqtt(2048); // Post-quantum public keys are huge, 800 bytes. 1600 since we encode as hex!
@@ -150,14 +149,37 @@ void messageReceived(String &topic, String &payload) {
         if (strcmp(ID_cstring, prefix1.c_str()) == 0){
         remote.setPublicKeyHex(payload.substring(64).c_str()); // only if OK do we set the remote public key
         Serial.println("Public key accepted");
+        if (!local.encapsulate(remote.getPublicKey())) {
+              Serial.print(24); // CANCEL something somehow went wrong with encapsulation, invalid public key, clear it. This should never actually happen though.
+              remotePubkeyHex = String(); // Clear, invalid
+              return;
+              }
+          connected = true; //Also set global connected flag as we have computed the local shared secret and are ready to send messages.
+          char hashData[3200];
+          message = local.getPublicKeyHex() + local.getCiphertextHex();
+          memset(hashData, 0, sizeof(hashData));
+          message.toCharArray(hashData, 3200);
+          strcat(hashData,localPermanentID);
+          strcat(hashData,localIdentifier.c_str());
+          const char *input = hashData;
+          uint8_t hash[32];
+          MySHA256.reset();
+          MySHA256.update(input, strlen(input));
+          MySHA256.finalize(hash, sizeof(hash));
+          size_t hashSize = sizeof(hash);
+          char ID_cstring[hashSize * 2 + 1]; // Two characters per byte, plus null-terminator
+          for (size_t i = 0; i < hashSize; i++) {
+            snprintf(&ID_cstring[i * 2], 3, "%02X", hash[i]);  // Uppercase hex
+          }
+          mymqtt.publish("entropy/"+remoteIdentifier, String(ID_cstring) + message); // Send hash + public key + ciphertext in one message.
         }
 
 } else if (payload.length() == 3200){
   // Chat request responses are always (32+800+768)*2=3200 characters long. The first 64 chars are a hmac, then the public key, then the ciphertext. Sending it in one message removes a window for shenanigans.
    String prefix1 = payload.substring(0,64);
    String message = payload.substring(64);
-   char hashData[3200];
-     message.toCharArray(hashData, 3200);
+   char hashData[3296];
+     message.toCharArray(hashData, 3232);
      strcat(hashData,remotePermanentID);
      strcat(hashData,remoteIdentifier.c_str());
      const char *input = hashData;
@@ -177,11 +199,10 @@ void messageReceived(String &topic, String &payload) {
         size_t byteCount = strlen(remoteCipherText.c_str()) / 2;
         uint8_t outputBytes[byteCount];
         hexStringToBytes(remoteCipherText.c_str(), outputBytes);
-        if (!local.decapsulate(remoteCipherBytes)) {
+        if (!local.decapsulate(outputBytes)) {
           Serial.print(24);
           connected = false;
           return;
-        }
         }
         }
 } else if (connected && payload.substring(0,3)=="cm_"){ //prefixing the messages is just a convenience. The GCM tag handles authentication here.
@@ -214,6 +235,7 @@ void messageReceived(String &topic, String &payload) {
    }
 
 void setup() {
+  String myHMAC;
   // TODO set CPU frequency to 80Mhz (we are I/O bound not processing bound) and try enabling WiFi sleep mode.
   setCpuFrequencyMhz(80);
   WiFi.setSleep(true); 
@@ -323,7 +345,9 @@ char configBuffer[512];
       }
   remoteIdentifier = String(ID_cstring);
   
-  //Finally, calculate the hash of my public key plus my permananent ID & channel. This will be used to identify myself when exchanging public keys. The channel is added to prevent replay.
+    //TODO if my local identifier is greater than the remote, calculate myHash & publish:
+  // mymqtt.publish("entropy/"+remoteIdentifier, myHMAC + local.getPublicKeyHex());
+  //Calculate the hash of my public key plus my permananent ID & channel. This will be used to identify myself when exchanging public keys. The channel is added to prevent replay. It's only needed if I'm initiating communications, can skip otherwise.
   memset(hashData, 0, sizeof(hashData));
   strcpy(hashData, local.getPublicKeyHex().c_str());
   strcat(hashData, localPermanentID);
@@ -340,7 +364,7 @@ char configBuffer[512];
   mymqtt.onMessage(messageReceived);
   connect(); 
   mymqtt.subscribe("entropy/" + localIdentifier);
-  Serial.print(17); // Acknowledge ready to receive
+
 }
 
 void loop() {
@@ -368,7 +392,7 @@ void loop() {
       {
       
       mqtt_reconnect();
-      mymqtt.publish("entropy/"+remoteIdentifier, myHMAC + local.getPublicKeyHex()); // Publish to remote, using local pubkey.
+     // mymqtt.publish("entropy/"+remoteIdentifier, myHMAC + local.getPublicKeyHex()); // Publish to remote, using local pubkey.
       //return
       break;
     }
