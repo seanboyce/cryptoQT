@@ -132,8 +132,8 @@ void messageReceived(String &topic, String &payload) {
    String prefix1 = payload.substring(0,64);
    String message = payload.substring(64);
      // If we are waiting for a specific public key, and it arrives correctly formatted, we can just accept it. 
-     char hashData[1696];
-     message.toCharArray(hashData, 1696);
+     char hashData[1697];
+     message.toCharArray(hashData, 1697);
      strcat(hashData,remotePermanentID);
      strcat(hashData,remoteIdentifier.c_str());
      const char *input = hashData;
@@ -155,7 +155,7 @@ void messageReceived(String &topic, String &payload) {
               return;
               }
           connected = true; //Also set global connected flag as we have computed the local shared secret and are ready to send messages.
-          char hashData[3200];
+          char hashData[3233];
           message = local.getPublicKeyHex() + local.getCiphertextHex();
           memset(hashData, 0, sizeof(hashData));
           message.toCharArray(hashData, 3200);
@@ -179,7 +179,7 @@ void messageReceived(String &topic, String &payload) {
    String prefix1 = payload.substring(0,64);
    String message = payload.substring(64);
    char hashData[3296];
-     message.toCharArray(hashData, 3232);
+     message.toCharArray(hashData, 3296);
      strcat(hashData,remotePermanentID);
      strcat(hashData,remoteIdentifier.c_str());
      const char *input = hashData;
@@ -204,6 +204,7 @@ void messageReceived(String &topic, String &payload) {
           connected = false;
           return;
         }
+        connected = true;
         }
 } else if (connected && payload.substring(0,3)=="cm_"){ //prefixing the messages is just a convenience. The GCM tag handles authentication here.
   String hexIV = payload.substring(3,35); // characters 19-51 are the hex representation of the initialization vector
@@ -264,12 +265,12 @@ void setup() {
 // 4. can chat now. 
 
 // As part of this, we'll remove case 6, and also we should probably automate case 1. If local channel ID > remote channelID, init comms.
-char configBuffer[512];
+char configBuffer[1024];
         Serial.print(17);
         while (Serial.available() == 0){
             delay(200); // just do whatever, we're waiting on config input
           }
-      size_t bytesRead = Serial.readBytesUntil('\x04', configBuffer, 512); // max 1024 characters of config. Items are separated by \x03 and terminated by \x04 
+      size_t bytesRead = Serial.readBytesUntil('\x04', configBuffer, 1024); // max 1024 characters of config. Items are separated by \x03 and terminated by \x04 
       configBuffer[bytesRead] = '\0';
       char* token = strtok(configBuffer, "\x03");
       if (token != NULL) {
@@ -313,9 +314,15 @@ char configBuffer[512];
       } else {
         Serial.print(24);
       }
+      token = strtok(NULL, "\x03");
+      if (token != NULL) {
+        timeStamp = atoi(token); 
+      } else {
+        Serial.print(24);
+      }
 
 
-  char hashData[1696]; //worst-case is public key hex [1600] plus permanentID [32] plus channelID hex [64] 
+  char hashData[1697]; //worst-case is public key hex [1600] plus permanentID [32] plus channelID hex [64] 
   memset(hashData, 0, sizeof(hashData));
   strcpy(hashData, localPermanentID);
   strcat(hashData, timeStamp);
