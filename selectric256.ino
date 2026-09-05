@@ -16,6 +16,7 @@ char* ssid;
 char* password;
 char* server;
 int port;
+char* serverUser;
 char* serverPass;
 char* channelPrefix;
 
@@ -84,7 +85,7 @@ void hexStringToBytes(const char* hex, byte* bytes) {
 
 void mqtt_reconnect(){
   int conn_count = 0;
-while (!mymqtt.connect(localIdentifier.c_str(), "entropy", "azathoth")) {
+while (!mymqtt.connect(localIdentifier.c_str(), serverUser, serverPass)) {
     delay(500);
     Serial.print(6); // ACK that we're alive, WiFi connect underway
     delay(500);
@@ -132,9 +133,10 @@ void messageReceived(String &topic, String &payload) {
    String prefix1 = payload.substring(0,64);
    String message = payload.substring(64);
      // If we are waiting for a specific public key, and it arrives correctly formatted, we can just accept it. 
-     char hashData[1632];
-     message.toCharArray(hashData, 1632);
+     char hashData[1696];
+     message.toCharArray(hashData, 1696);
      strcat(hashData,remotePermanentID);
+     strcat(hashData,remoteIdentifier.c_str());
      const char *input = hashData;
      uint8_t hash[32];
      MySHA256.reset();
@@ -253,6 +255,12 @@ char configBuffer[512];
       }
       token = strtok(NULL, "\x03");
       if (token != NULL) {
+        serverUser = token; 
+      } else {
+        Serial.print(24);
+      }
+      token = strtok(NULL, "\x03");
+      if (token != NULL) {
         serverPass = token; 
       } else {
         Serial.print(24);
@@ -265,7 +273,7 @@ char configBuffer[512];
       }
 
 
-  char hashData[1632]; //32 bytes for ID, 7 for timestamp, one for null terminator
+  char hashData[1696]; //worst-case is public key hex [1600] plus permanentID [32] plus channelID hex [64] 
   memset(hashData, 0, sizeof(hashData));
   strcpy(hashData, localPermanentID);
   strcat(hashData, timeStamp);
@@ -295,10 +303,11 @@ char configBuffer[512];
       }
   remoteIdentifier = String(ID_cstring);
   
-  //Finally, calculate the hash of my public key plus my permananent ID. This will be used to identify myself when exchanging public keys.
+  //Finally, calculate the hash of my public key plus my permananent ID & channel. This will be used to identify myself when exchanging public keys. The channel is added to prevent replay.
   memset(hashData, 0, sizeof(hashData));
   strcpy(hashData, local.getPublicKeyHex().c_str());
   strcat(hashData, localPermanentID);
+  strcat(hashData, localIdentifier.c_str());
   MySHA256.reset();
   MySHA256.update(input, strlen(input));
   MySHA256.finalize(hash, sizeof(hash));
